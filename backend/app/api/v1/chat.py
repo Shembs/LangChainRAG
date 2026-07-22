@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_db
+from app.core.db import get_db, async_session_factory
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.conversation import Conversation
@@ -181,30 +181,30 @@ async def ask_question(
         ):
             yield event
 
-            # Parse event to extract full answer
-            if event.startswith("data: "):
+            # Extract JSON data from SSE event (handles both single-line
+            # "data: {...}" and multi-line "event: X\ndata: {...}" formats)
+            data_str = None
+            if "\ndata: " in event:
+                data_str = event.split("\ndata: ", 1)[1].split("\n")[0]
+            elif event.startswith("data: "):
+                data_str = event.removeprefix("data: ").strip()
+
+            if data_str:
                 try:
-                    parsed = json.loads(event[6:].strip())
-                    if parsed.get("type") == "text":
+                    parsed = json.loads(data_str)
+                except (json.JSONDecodeError, KeyError):
+                    parsed = None
+
+                if parsed:
+                    # Citation event
+                    if "citations" in parsed:
+                        citations = parsed.get("citations", [])
+                    # Done event
+                    elif "total_tokens" in parsed:
+                        response_time = parsed.get("response_time_ms", 0)
+                    # Text delta
+                    elif parsed.get("type") == "text":
                         full_answer += parsed.get("content", "")
-                except (json.JSONDecodeError, KeyError):
-                    pass
-            elif event.startswith("event: citation"):
-                # Next line is the data for citations
-                continue
-            elif event.startswith("data: ") and '"citations"' in event:
-                try:
-                    parsed = json.loads(event[6:].strip())
-                    citations = parsed.get("citations", [])
-                except (json.JSONDecodeError, KeyError):
-                    pass
-            elif "response_time_ms" in event and "done" in event:
-                try:
-                    data_str = event.split("data: ", 1)[1] if "data: " in event else event
-                    parsed = json.loads(data_str.strip())
-                    response_time = parsed.get("response_time_ms", 0)
-                except (json.JSONDecodeError, KeyError):
-                    pass
 
         # Save assistant message after streaming completes
         if full_answer:
@@ -218,7 +218,6 @@ async def ask_question(
                         response_time_ms=response_time,
                     )
 
-    from app.core.db import async_session_factory
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",

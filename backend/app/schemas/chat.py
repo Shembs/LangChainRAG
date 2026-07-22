@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from uuid import UUID
+from pydantic import BaseModel, Field, field_serializer
 
 
 class AskRequest(BaseModel):
@@ -16,22 +17,30 @@ class CitationSchema(BaseModel):
 
 
 class MessageResponse(BaseModel):
-    id: str
+    id: UUID
     role: str
     content: str
     citations: Optional[List[CitationSchema]] = None
     response_time_ms: Optional[int] = None
     created_at: datetime
 
+    @field_serializer("id")
+    def serialize_id(self, id: UUID, _info) -> str:
+        return str(id)
+
     model_config = {"from_attributes": True}
 
 
 class ConversationResponse(BaseModel):
-    id: str
+    id: UUID
     title: str
     message_count: int
     created_at: datetime
     updated_at: datetime
+
+    @field_serializer("id")
+    def serialize_id(self, id: UUID, _info) -> str:
+        return str(id)
 
     model_config = {"from_attributes": True}
 

@@ -54,18 +54,18 @@ async def _process_document_async(document_id: str):
     doc_uuid = uuid.UUID(document_id)
 
     async with async_session_factory() as db:
-        # 1. Load the document record
-        result = await db.execute(select(Document).where(Document.id == doc_uuid))
-        doc = result.scalar_one_or_none()
-        if not doc:
-            print(f"[Task] Document {document_id} not found")
-            return
-
-        # 2. Update status to processing
-        doc.status = "processing"
-        await db.commit()
-
         try:
+            # 1. Load the document record
+            result = await db.execute(select(Document).where(Document.id == doc_uuid))
+            doc = result.scalar_one_or_none()
+            if not doc:
+                print(f"[Task] Document {document_id} not found")
+                return
+
+            # 2. Update status to processing
+            doc.status = "processing"
+            await db.commit()
+
             # 3. Load the document
             file_path = f"{settings.upload_dir}/{document_id}_{doc.title}"
             # Fallback: find the file by scanning upload dir
@@ -128,6 +128,9 @@ async def _process_document_async(document_id: str):
             print(f"[Task] Document {doc.title}: processed {len(chunks)} chunks successfully")
 
         except Exception as e:
+            await db.rollback()
+            # Re-fetch doc in a fresh transaction to update status
+            await db.refresh(doc)
             doc.status = "error"
             doc.error_message = str(e)
             await db.commit()

@@ -1,35 +1,43 @@
-"""DeepSeek Embedding API wrapper."""
+"""Local embedding model via HuggingFace sentence-transformers."""
+import os
 from typing import List
-from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from app.config import settings
 
+# Singleton instance
+_embedding_model: HuggingFaceEmbeddings | None = None
 
-def get_embedding_model() -> OpenAIEmbeddings:
-    """Create an OpenAI-compatible embedding model for DeepSeek API.
 
-    DeepSeek's embedding endpoint is OpenAI-compatible.
-    Returns an embedding model with 1536-dimensional vectors.
+def get_embedding_model() -> HuggingFaceEmbeddings:
+    """Create or retrieve the local HuggingFace embedding model.
+
+    Uses BAAI/bge-small-zh-v1.5 by default — 512-dimensional vectors,
+    optimized for Chinese text, lightweight (~200MB download).
+
+    Automatically uses HF_ENDPOINT mirror if set (for regions where
+    huggingface.co is inaccessible).
     """
-    return OpenAIEmbeddings(
-        model=settings.embedding_model,
-        openai_api_key=settings.embedding_api_key,
-        openai_api_base=settings.embedding_api_base,
-        dimensions=1536,
-    )
+    global _embedding_model
+    if _embedding_model is None:
+        _embedding_model = HuggingFaceEmbeddings(
+            model_name=settings.embedding_model,
+            model_kwargs={"device": "cpu"},
+            encode_kwargs={"normalize_embeddings": True},
+        )
+    return _embedding_model
 
 
 async def embed_texts(texts: List[str]) -> List[List[float]]:
-    """Generate embeddings for a list of texts using DeepSeek API.
+    """Generate embeddings for a list of texts.
 
     Args:
         texts: List of text strings to embed.
 
     Returns:
-        List of embedding vectors (each is List[float] of 1536 dims).
+        List of embedding vectors (each is List[float] of 512 dims).
     """
     model = get_embedding_model()
-    embeddings = model.embed_documents(texts)
-    return embeddings
+    return model.embed_documents(texts)
 
 
 async def embed_query(query: str) -> List[float]:
@@ -39,8 +47,7 @@ async def embed_query(query: str) -> List[float]:
         query: The query string to embed.
 
     Returns:
-        Embedding vector (List[float] of 1536 dims).
+        Embedding vector (List[float] of 512 dims).
     """
     model = get_embedding_model()
-    embedding = model.embed_query(query)
-    return embedding
+    return model.embed_query(query)

@@ -16,7 +16,7 @@ class ChunkEmbedding(Base):
     chunk_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=False
     )
-    embedding = mapped_column(Vector(1536), nullable=False)
+    embedding = mapped_column(Vector(512), nullable=False)
     embedding_model: Mapped[str] = mapped_column(String(100), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

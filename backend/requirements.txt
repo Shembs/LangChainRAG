@@ -24,6 +24,9 @@ langchain-community>=0.3.0
 langchain-core>=0.3.0
 langchain-openai>=0.2.0
 
+# Embedding (local HuggingFace model)
+sentence-transformers>=3.0.0
+
 # Document Processing
 pypdf2>=3.0.0
 python-docx>=1.1.0

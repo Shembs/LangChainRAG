@@ -11,10 +11,9 @@ class Settings(BaseSettings):
     llm_api_key: str = Field(default="sk-xxx", validation_alias="DEEPSEEK_API_KEY")
     llm_model: str = "deepseek-V4Pro"
 
-    # Embedding (复用 LLM 的 API Key)
-    embedding_api_base: str = "https://api.deepseek.com/v1"
-    embedding_api_key: str = Field(default="sk-xxx", validation_alias="DEEPSEEK_API_KEY")
-    embedding_model: str = "deepseek-V4Pro"
+    # Embedding (local model)
+    embedding_provider: str = "local"
+    embedding_model: str = "BAAI/bge-small-zh-v1.5"
 
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5444/rag_kb"

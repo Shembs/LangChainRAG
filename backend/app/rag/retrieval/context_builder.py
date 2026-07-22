@@ -67,8 +67,8 @@ def build_context(
     used_tokens = 0
 
     for i, (chunk, score) in enumerate(chunks):
-        # Get document title from the chunk's document relationship
-        doc_title = "未知文档"
+        # Get document title from the chunk (set by vector_store query)
+        doc_title = getattr(chunk, "document_title", None) or "未知文档"
 
         chunk_text = f"[来源 {i + 1}] 文档: {doc_title}\n"
         if chunk.section_title:

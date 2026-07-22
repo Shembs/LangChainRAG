@@ -48,7 +48,7 @@ async def similarity_search(
     """Perform cosine similarity search via PGVector.
 
     Args:
-        query_embedding: The query vector (1536-dim).
+        query_embedding: The query vector (512-dim).
         top_k: Number of top results to return.
 
     Returns:
@@ -71,12 +71,13 @@ async def similarity_search(
                 dc.page_number,
                 dc.section_title,
                 dc.created_at,
-                1 - (ce.embedding <=> :query_vec::vector) AS similarity
+                d.title AS document_title,
+                1 - (ce.embedding <=> CAST(:query_vec AS vector)) AS similarity
             FROM chunk_embeddings ce
             JOIN document_chunks dc ON dc.id = ce.chunk_id
             JOIN documents d ON d.id = dc.document_id
             WHERE d.status = 'completed'
-            ORDER BY ce.embedding <=> :query_vec::vector
+            ORDER BY ce.embedding <=> CAST(:query_vec AS vector)
             LIMIT :top_k
         """)
 
@@ -98,7 +99,8 @@ async def similarity_search(
                 section_title=row[6],
                 created_at=row[7],
             )
-            similarity = float(row[8])
+            chunk.document_title = row[8]  # type: ignore[attr-defined]
+            similarity = float(row[9])
             chunks.append((chunk, similarity))
 
         return chunks
@@ -132,7 +134,7 @@ async def keyword_search(
     from app.models.document import Document
 
     async with async_session_factory() as db:
-        # Use PostgreSQL full-text search with ts_rank
+        # Use PostgreSQL full-text search with ts_rank (dynamic tsvector)
         q = text("""
             SELECT
                 dc.id,
@@ -143,11 +145,12 @@ async def keyword_search(
                 dc.page_number,
                 dc.section_title,
                 dc.created_at,
-                ts_rank(dc.content_tsv, plainto_tsquery('simple', :query)) AS rank
+                d.title AS document_title,
+                ts_rank(to_tsvector('simple', dc.content), plainto_tsquery('simple', :query)) AS rank
             FROM document_chunks dc
             JOIN documents d ON d.id = dc.document_id
             WHERE d.status = 'completed'
-              AND dc.content_tsv @@ plainto_tsquery('simple', :query)
+              AND to_tsvector('simple', dc.content) @@ plainto_tsquery('simple', :query)
             ORDER BY rank DESC
             LIMIT :top_k
         """)
@@ -167,6 +170,7 @@ async def keyword_search(
                 section_title=row[6],
                 created_at=row[7],
             )
+            chunk.document_title = row[8]  # type: ignore[attr-defined]
             chunks.append(chunk)
 
         return chunks

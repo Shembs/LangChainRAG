@@ -18,8 +18,13 @@ from app.rag.retrieval.hybrid_retriever import hybrid_search
 from app.rag.retrieval.reranker import llm_rerank
 from app.rag.retrieval.context_builder import deduplicate_chunks, build_context
 from app.rag.generation.llm_factory import get_chat_llm
-from app.rag.generation.prompts import RAG_SYSTEM_PROMPT
+from app.rag.generation.prompts import RAG_SYSTEM_PROMPT, GENERAL_ANSWER_PROMPT
 from app.rag.generation.post_processor import format_answer_with_sources
+
+
+# Minimum fusion score threshold to consider a chunk "relevant".
+# Below this, the question likely doesn't match any KB content.
+MIN_RELEVANCE_SCORE = 0.04
 
 
 async def run_rag_pipeline(
@@ -48,9 +53,26 @@ async def run_rag_pipeline(
     search_results = await hybrid_search(rewritten_query, top_k=15)
     retrieval_time = (time.time() - retrieval_start) * 1000  # ms
 
-    if not search_results:
-        yield f"data: {json.dumps({'content': '抱歉，知识库中暂无与该问题相关的信息。请尝试换个问法。', 'type': 'text'})}\n\n"
-        yield f"event: done\ndata: {json.dumps({'total_tokens': 0, 'response_time_ms': int((time.time() - t_start) * 1000), 'retrieval_time_ms': int(retrieval_time)})}\n\n"
+    if not search_results or search_results[0][1] < MIN_RELEVANCE_SCORE:
+        # Fallback: let DeepSeek answer with its own knowledge
+        general_prompt = GENERAL_ANSWER_PROMPT.format(
+            chat_history=chat_history,
+            question=question,
+        )
+        llm = get_chat_llm(streaming=True, temperature=0.3)
+        full_answer = ""
+        try:
+            async for chunk in llm.astream(general_prompt):
+                if chunk.content:
+                    full_answer += chunk.content
+                    yield f"data: {json.dumps({'content': chunk.content, 'type': 'text'})}\n\n"
+
+            response_time = int((time.time() - t_start) * 1000)
+            yield f"event: done\ndata: {json.dumps({'total_tokens': len(full_answer) // 3, 'response_time_ms': response_time, 'retrieval_time_ms': int(retrieval_time)})}\n\n"
+        except Exception as e:
+            error_msg = f"生成回答时出错：{str(e)}"
+            yield f"data: {json.dumps({'content': error_msg, 'type': 'error'})}\n\n"
+            yield f"event: done\ndata: {json.dumps({'total_tokens': 0, 'response_time_ms': int((time.time() - t_start) * 1000), 'retrieval_time_ms': int(retrieval_time)})}\n\n"
         return
 
     # Step 3: Reranking

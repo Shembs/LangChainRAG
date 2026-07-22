@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query, Form, Request
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +14,7 @@ from app.api.deps import get_current_admin
 from app.models.user import User
 from app.models.document import Document
 from app.models.document_chunk import DocumentChunk
+from app.models.audit_log import AuditLog
 from app.schemas.knowledge import (
     DocumentResponse,
     DocumentListResponse,
@@ -27,6 +28,7 @@ router = APIRouter()
 
 @router.post("/upload")
 async def upload_documents(
+    request: Request,
     files: List[UploadFile] = File(...),
     category: str = Form("通用"),
     current_user: User = Depends(get_current_admin),
@@ -78,11 +80,31 @@ async def upload_documents(
         uploaded_docs.append(doc)
 
     await db.flush()
+    await db.commit()
 
-    # Trigger async processing via Celery
-    from app.tasks.ingestion_tasks import process_document
+    # Record audit logs
+    client_ip = request.client.host if request.client else None
     for doc in uploaded_docs:
-        process_document.delay(str(doc.id))
+        audit = AuditLog(
+            user_id=current_user.id,
+            action="doc_upload",
+            resource_type="document",
+            detail={
+                "document_id": str(doc.id),
+                "title": doc.title,
+                "file_type": doc.file_type,
+                "file_size_bytes": doc.file_size_bytes,
+            },
+            ip_address=client_ip,
+        )
+        db.add(audit)
+    await db.commit()
+
+    # Trigger async processing in background (bypass Celery — no worker in compose)
+    import asyncio
+    from app.tasks.ingestion_tasks import _process_document_async
+    for doc in uploaded_docs:
+        asyncio.create_task(_process_document_async(str(doc.id)))
 
     return {
         "message": f"成功上传 {len(uploaded_docs)} 个文档，正在后台处理中...",
@@ -148,6 +170,7 @@ async def get_document(
 @router.delete("/documents/{doc_id}")
 async def delete_document(
     doc_id: str,
+    request: Request,
     current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
@@ -159,7 +182,22 @@ async def delete_document(
     # Delete the file from disk if it exists
     # (file_path is stored in the document metadata — simplified for now)
 
+    # Record audit log before deletion
+    audit = AuditLog(
+        user_id=current_user.id,
+        action="doc_delete",
+        resource_type="document",
+        detail={
+            "document_id": str(doc.id),
+            "title": doc.title,
+            "file_type": doc.file_type,
+        },
+        ip_address=request.client.host if request.client else None,
+    )
+    db.add(audit)
+
     await db.delete(doc)
+    await db.commit()
     return {"message": "文档已删除"}
 
 
