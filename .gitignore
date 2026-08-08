@@ -1,0 +1,66 @@
+# ========================================================
+# LangChainRAG — .gitignore
+# ========================================================
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment variables
+.env
+
+# ChromaDB persistent data
+chroma_db/
+
+# Uploaded files / data
+data/
+chat_history/
+
+# MD5 cache
+md5.txt
+md5.text
+md5_hex_store
+md5_hex_store/
+
+# Logs
+*.log
+logs/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Archives
+*.zip
+*.tar.gz
+*.7z
+
+# Claude
+.claude/

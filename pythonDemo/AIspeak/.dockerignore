@@ -1,0 +1,50 @@
+# ========================================================
+# Noir AI — .dockerignore
+# 构建镜像时排除的文件/目录
+# ========================================================
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 虚拟环境
+venv/
+.venv/
+env/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# 文档
+*.md
+!README.md
+
+# 临时文件
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Docker 自身
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 本地脚本
+run.bat
+
+# Streamlit（不需要在 Docker 中运行）
+Streamlit.py
+TryApi.py

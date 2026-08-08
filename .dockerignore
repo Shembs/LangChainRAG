@@ -1,0 +1,70 @@
+# ========================================================
+# LangChainRAG — .dockerignore
+# ========================================================
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Environment
+.env
+.env.local
+
+# ChromaDB data (should be mounted as volume)
+chroma_db/
+
+# Uploaded files (should be mounted as volume)
+data/
+chat_history/
+
+# MD5 cache
+md5.txt
+md5_hex_store/
+
+# Logs
+*.log
+logs/
+
+# Documentation (keep README)
+*.md
+!README.md
+
+# Temporary files
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Archives
+*.zip
+*.tar.gz
+
+# Claude
+.claude/
+
+# Test files
+test_*.py

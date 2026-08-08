@@ -1,0 +1,133 @@
+# ========================================================
+# LangChainRAG — Docker Compose 编排
+#
+# 启动所有服务:  docker compose up -d
+# 启动指定服务:  docker compose up -d rag-qa rag-agent
+# 停止:          docker compose down
+# 查看日志:      docker compose logs -f
+# 重新构建:      docker compose build --no-cache
+# ========================================================
+
+version: "3.8"
+
+services:
+  # ==================== RAG 知识库问答 ====================
+  rag-qa:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: langchain-rag-qa
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      - APP_MODE=rag-qa
+      - STREAMLIT_SERVER_PORT=8501
+      # LLM API Keys（通过 .env 文件或环境变量传入）
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+    volumes:
+      - rag_chroma_data:/app/RAG_and_Agent_project/project_RAG/chroma_db
+      - rag_upload_data:/app/RAG_and_Agent_project/project_RAG/data
+      - rag_chat_history:/app/RAG_and_Agent_project/project_RAG/chat_history
+    networks:
+      - langchain-rag-network
+
+  # ==================== ReAct Agent 智能客服 ====================
+  rag-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: langchain-rag-agent
+    restart: unless-stopped
+    ports:
+      - "8502:8502"
+    environment:
+      - APP_MODE=rag-agent
+      - STREAMLIT_SERVER_PORT=8502
+      # LLM API Keys
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+    volumes:
+      - agent_chroma_data:/app/RAG_and_Agent_project/project_Agent/chroma_db
+      - agent_upload_data:/app/RAG_and_Agent_project/project_Agent/data
+    networks:
+      - langchain-rag-network
+
+  # ==================== Noir AI 多模型聊天 API ====================
+  aispeak:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: langchain-aispeak
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_MODE=aispeak
+      - API_PORT=8000
+      # LLM API Keys
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
+      - ZHIPUAI_API_KEY=${ZHIPUAI_API_KEY:-}
+      - YI_API_KEY=${YI_API_KEY:-}
+      # MySQL
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-123456}
+      - MYSQL_DATABASE=noir_ai_chat
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - langchain-rag-network
+
+  # ==================== MySQL 数据库（AIspeak 依赖） ====================
+  mysql:
+    image: mysql:8.0
+    container_name: langchain-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-123456}
+      MYSQL_DATABASE: noir_ai_chat
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./pythonDemo/AIspeak/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_PASSWORD:-123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - langchain-rag-network
+
+# ==================== 数据卷 ====================
+volumes:
+  # RAG Q&A 持久化数据
+  rag_chroma_data:
+    driver: local
+  rag_upload_data:
+    driver: local
+  rag_chat_history:
+    driver: local
+  # Agent 持久化数据
+  agent_chroma_data:
+    driver: local
+  agent_upload_data:
+    driver: local
+  # MySQL 数据
+  mysql_data:
+    driver: local
+
+# ==================== 网络 ====================
+networks:
+  langchain-rag-network:
+    driver: bridge

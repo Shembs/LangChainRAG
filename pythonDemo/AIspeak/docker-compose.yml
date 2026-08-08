@@ -1,0 +1,72 @@
+# ========================================================
+# Noir AI — Docker Compose 编排
+# 启动: docker compose up -d
+# 停止: docker compose down
+# 查看日志: docker compose logs -f backend
+# ========================================================
+
+version: "3.8"
+
+services:
+  # ==================== MySQL 数据库 ====================
+  mysql:
+    image: mysql:8.0
+    container_name: noir-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-123456}
+      MYSQL_DATABASE: noir_ai_chat
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    ports:
+      - "3307:3306"                      # 映射到 3307 避免与本地 MySQL 冲突
+    volumes:
+      - mysql_data:/var/lib/mysql        # 数据持久化
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro  # 自动建表
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_PASSWORD:-123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - noir-network
+
+  # ==================== FastAPI 后端 ====================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: noir-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"                      # API + 静态文件
+    environment:
+      # MySQL 连接（docker-compose 内用服务名）
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=root
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-123456}
+      - MYSQL_DATABASE=noir_ai_chat
+      # AI API Keys（通过 .env 文件或环境变量传入）
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
+      - ZHIPUAI_API_KEY=${ZHIPUAI_API_KEY:-}
+      - YI_API_KEY=${YI_API_KEY:-}
+    depends_on:
+      mysql:
+        condition: service_healthy       # 等待 MySQL 就绪
+    networks:
+      - noir-network
+
+# ==================== 数据卷 ====================
+volumes:
+  mysql_data:
+    driver: local
+
+# ==================== 网络 ====================
+networks:
+  noir-network:
+    driver: bridge
