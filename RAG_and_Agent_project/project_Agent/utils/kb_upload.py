@@ -20,6 +20,45 @@ ALLOWED_EXTENSIONS: tuple[str, ...] = tuple(
 )
 
 
+def save_file_bytes(filename: str, data: bytes) -> Optional[str]:
+    """将文件字节写入 data/ 目录（Streamlit 与 FastAPI 共用）。
+
+    Args:
+        filename: 原始文件名（含扩展名）。
+        data: 文件的二进制内容。
+
+    Returns:
+        str: 保存成功的文件绝对路径；失败或类型不允许时返回 None。
+    """
+    # 检查文件扩展名
+    file_ext = Path(filename).suffix.lstrip(".").lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        logger.warning(f"[知识库上传]不支持的文件类型: .{file_ext}（允许: {ALLOWED_EXTENSIONS}）")
+        return None
+
+    data_dir = get_abs_path(chroma_conf["data_path"])
+    os.makedirs(data_dir, exist_ok=True)
+
+    save_path = os.path.join(data_dir, filename)
+
+    # 避免覆盖已有文件：添加序号后缀
+    if os.path.exists(save_path):
+        base, ext = os.path.splitext(filename)
+        counter = 1
+        while os.path.exists(save_path):
+            save_path = os.path.join(data_dir, f"{base}_{counter}{ext}")
+            counter += 1
+
+    try:
+        with open(save_path, "wb") as f:
+            f.write(data)
+        logger.info(f"[知识库上传]文件已保存: {save_path}")
+        return save_path
+    except Exception as e:
+        logger.error(f"[知识库上传]保存文件失败: {e}", exc_info=True)
+        return None
+
+
 def save_uploaded_file(uploaded_file) -> Optional[str]:
     """将 Streamlit UploadedFile 保存到 data/ 目录。
 
@@ -29,33 +68,7 @@ def save_uploaded_file(uploaded_file) -> Optional[str]:
     Returns:
         str: 保存成功的文件绝对路径；失败或类型不允许时返回 None。
     """
-    # 检查文件扩展名
-    file_ext = Path(uploaded_file.name).suffix.lstrip(".").lower()
-    if file_ext not in ALLOWED_EXTENSIONS:
-        logger.warning(f"[知识库上传]不支持的文件类型: .{file_ext}（允许: {ALLOWED_EXTENSIONS}）")
-        return None
-
-    data_dir = get_abs_path(chroma_conf["data_path"])
-    os.makedirs(data_dir, exist_ok=True)
-
-    save_path = os.path.join(data_dir, uploaded_file.name)
-
-    # 避免覆盖已有文件：添加序号后缀
-    if os.path.exists(save_path):
-        base, ext = os.path.splitext(uploaded_file.name)
-        counter = 1
-        while os.path.exists(save_path):
-            save_path = os.path.join(data_dir, f"{base}_{counter}{ext}")
-            counter += 1
-
-    try:
-        with open(save_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-        logger.info(f"[知识库上传]文件已保存: {save_path}")
-        return save_path
-    except Exception as e:
-        logger.error(f"[知识库上传]保存文件失败: {e}", exc_info=True)
-        return None
+    return save_file_bytes(uploaded_file.name, uploaded_file.getbuffer())
 
 
 def refresh_knowledge_base() -> dict:

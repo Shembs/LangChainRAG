@@ -41,9 +41,14 @@ case "${APP_MODE}" in
         cd pythonDemo/AIspeak
         exec uvicorn server:app --host 0.0.0.0 --port ${API_PORT:-8000}
         ;;
+    admin)
+        echo ">>> 启动后台管理服务 (FastAPI + Vue, 端口 ${API_PORT:-8001})"
+        cd RAG_and_Agent_project/project_Agent
+        exec uvicorn admin_api.main:app --host 0.0.0.0 --port ${API_PORT:-8001}
+        ;;
     *)
         echo "ERROR: 未知的 APP_MODE: ${APP_MODE}"
-        echo "可选值: rag-qa | rag-uploader | rag-agent | aispeak"
+        echo "可选值: rag-qa | rag-uploader | rag-agent | aispeak | admin"
         exit 1
         ;;
 esac

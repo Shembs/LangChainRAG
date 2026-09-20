@@ -54,6 +54,27 @@ services:
     networks:
       - langchain-rag-network
 
+  # ==================== 后台管理（FastAPI + Vue） ====================
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile.admin
+    container_name: langchain-rag-admin
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - APP_MODE=admin
+      - API_PORT=8001
+      # LLM API Keys
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY:-}
+    volumes:
+      - agent_chroma_data:/app/RAG_and_Agent_project/project_Agent/chroma_db
+      - agent_upload_data:/app/RAG_and_Agent_project/project_Agent/data
+    networks:
+      - langchain-rag-network
+
   # ==================== Noir AI 多模型聊天 API ====================
   aispeak:
     build:

@@ -3,24 +3,23 @@
 
 基于 ReAct Agent 的对话式助手，支持流式输出和多轮对话。
 - 淡色主题 UI
-- 侧边栏：知识库上传管理 + 默认快捷问题
+- 侧边栏：多会话管理（新增 / 删除 / 切换）+ 默认快捷问题
 - 知识库无匹配时自动回退到 AI 大模型回答
+- 知识库上传与模型调整已移至后台管理界面（admin_frontend + admin_server）
 
 运行方式: streamlit run app.py
 """
 
+import json
+import os
+import uuid
 from datetime import datetime
-from pathlib import Path
 from typing import Generator
 
 import streamlit as st
 
 from agent.react_agent import ReactAgent
-from utils.kb_upload import (
-    save_uploaded_file,
-    refresh_knowledge_base,
-    get_kb_file_list,
-)
+from utils.path_tool import get_abs_path
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -33,9 +32,16 @@ LOADING_TEXT: str = "智能客服思考中……"
 
 # Session state 键名
 KEY_AGENT: str = "agent"
-KEY_MESSAGES: str = "messages"
+KEY_CONVERSATIONS: str = "conversations"
+KEY_CURRENT_ID: str = "current_conv_id"
 KEY_PENDING_QUESTION: str = "pending_question"
-KEY_UPLOAD_STATUS: str = "upload_status"
+
+# 会话持久化路径
+CHAT_HISTORY_DIR: str = get_abs_path("chat_history")
+CHAT_HISTORY_FILE: str = os.path.join(CHAT_HISTORY_DIR, "conversations.json")
+
+# 会话标题最大长度
+_TITLE_MAX_LEN: int = 16
 
 # 预设快捷问题
 DEFAULT_QUESTIONS: list[dict[str, str]] = [
@@ -59,15 +65,15 @@ CUSTOM_CSS: str = """
 
     /* ===== 侧边栏 ===== */
     [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #E8F0FE 0%, #F0F4FA 100%);
-        border-right: 1px solid #DEE5ED;
+        background: linear-gradient(180deg, #1E2A45 0%, #26344F 100%);
+        border-right: 1px solid #33405E;
     }
     [data-testid="stSidebar"] .stMarkdown h2 {
-        color: #2C3E50;
+        color: #FFFFFF;
         font-weight: 700;
     }
     [data-testid="stSidebar"] .stMarkdown h3 {
-        color: #34495E;
+        color: #E8EDF5;
         font-weight: 600;
         font-size: 0.95rem;
         margin-top: 1rem;
@@ -77,32 +83,33 @@ CUSTOM_CSS: str = """
     [data-testid="stSidebar"] .stButton > button {
         width: 100%;
         border-radius: 10px;
-        border: 1px solid #D6E4F0;
-        background: #FFFFFF;
-        color: #2C3E50;
+        border: 1px solid #3A4A6E;
+        background: #2A3A5C;
+        color: #E8EDF5;
         font-size: 0.85rem;
         padding: 0.5rem 0.75rem;
         transition: all 0.2s ease;
         text-align: left;
     }
     [data-testid="stSidebar"] .stButton > button:hover {
-        background: #D6EAF8;
-        border-color: #85C1E9;
+        background: #33456B;
+        border-color: #5B78A8;
         transform: translateX(2px);
     }
     [data-testid="stSidebar"] .stButton > button:active {
-        background: #AED6F1;
-    }
-
-    /* 侧边栏上传区域 */
-    [data-testid="stSidebar"] [data-testid="stFileUploader"] {
-        padding: 0.5rem 0;
+        background: #3D517A;
     }
 
     /* 侧边栏分割线 */
     [data-testid="stSidebar"] hr {
-        border-color: #D6E4F0;
+        border-color: #3A4A6E;
         margin: 1rem 0;
+    }
+
+    /* 侧边栏内联代码（如文件名） */
+    [data-testid="stSidebar"] code {
+        color: #D6E0F0;
+        background-color: #33405E;
     }
 
     /* ===== 主聊天区 ===== */
@@ -181,31 +188,13 @@ CUSTOM_CSS: str = """
         border: 1px solid #D6EAF8;
     }
 
-    /* ===== 自定义 toasts ===== */
-    .upload-toast {
-        padding: 0.75rem 1rem;
-        border-radius: 10px;
-        font-size: 0.85rem;
-        margin: 0.5rem 0;
-    }
-    .upload-toast.success {
-        background: #D5F5E3;
-        color: #1E8449;
-        border: 1px solid #A9DFBF;
-    }
-    .upload-toast.error {
-        background: #FADBD8;
-        color: #C0392B;
-        border: 1px solid #F1948A;
-    }
-
     /* ===== 页脚 ===== */
     .sidebar-footer {
         position: fixed;
         bottom: 0;
         padding: 1rem;
         font-size: 0.75rem;
-        color: #95A5A6;
+        color: #9FB0CC;
         text-align: center;
         width: calc(var(--sidebar-width) - 2rem);
     }
@@ -250,16 +239,85 @@ def handle_default_question(question: str) -> None:
     st.session_state[KEY_PENDING_QUESTION] = question
 
 
-def clear_chat_history() -> None:
-    """Callback：清空聊天记录。"""
-    st.session_state[KEY_MESSAGES] = []
+# ---------------------------------------------------------------------------
+# 会话管理
+# ---------------------------------------------------------------------------
+def _new_conversation() -> dict:
+    return {
+        "id": uuid.uuid4().hex,
+        "title": "新对话",
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "messages": [],
+    }
 
 
-def get_file_icon(filename: str) -> str:
-    """根据文件扩展名返回对应图标。"""
-    ext = Path(filename).suffix.lower()
-    icons = {".txt": "📄", ".pdf": "📕", ".docx": "📘"}
-    return icons.get(ext, "📎")
+def _conv_title(conv: dict) -> str:
+    """根据会话首条用户消息生成标题，无消息时返回「新对话」。"""
+    for msg in conv.get("messages", []):
+        if msg.get("role") == "user":
+            text = msg.get("content", "").strip().replace("\n", " ")
+            return text[:_TITLE_MAX_LEN] + ("…" if len(text) > _TITLE_MAX_LEN else "")
+    return "新对话"
+
+
+def _load_conversations() -> list[dict]:
+    if not os.path.isfile(CHAT_HISTORY_FILE):
+        return []
+    try:
+        with open(CHAT_HISTORY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _save_conversations() -> None:
+    os.makedirs(CHAT_HISTORY_DIR, exist_ok=True)
+    with open(CHAT_HISTORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(st.session_state[KEY_CONVERSATIONS], f, ensure_ascii=False, indent=2)
+
+
+def new_conversation() -> None:
+    """Callback：新增一个空会话并切换为当前会话。"""
+    conv = _new_conversation()
+    st.session_state[KEY_CONVERSATIONS].insert(0, conv)
+    st.session_state[KEY_CURRENT_ID] = conv["id"]
+    _save_conversations()
+
+
+def delete_conversation(conv_id: str) -> None:
+    """删除指定会话；若删除后无会话则自动补建一个空会话。"""
+    convs = st.session_state[KEY_CONVERSATIONS]
+    convs[:] = [c for c in convs if c["id"] != conv_id]
+    if not convs:
+        convs.append(_new_conversation())
+    st.session_state[KEY_CURRENT_ID] = convs[0]["id"]
+    _save_conversations()
+
+
+def get_current_conversation() -> dict:
+    """返回当前选中的会话。"""
+    convs = st.session_state[KEY_CONVERSATIONS]
+    cid = st.session_state[KEY_CURRENT_ID]
+    for c in convs:
+        if c["id"] == cid:
+            return c
+    return convs[0]
+
+
+@st.dialog("删除会话")
+def confirm_delete_dialog(conv_id: str):
+    """删除会话前的二次确认对话框。"""
+    target = next((c for c in st.session_state[KEY_CONVERSATIONS] if c["id"] == conv_id), None)
+    title = _conv_title(target) if target else "当前会话"
+    st.write(f"确认删除会话「{title}」吗？删除后聊天记录不可恢复。")
+
+    col1, col2 = st.columns(2)
+    if col1.button("确认删除", type="primary", use_container_width=True):
+        delete_conversation(conv_id)
+        st.rerun()
+    if col2.button("取消", use_container_width=True):
+        st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -268,14 +326,16 @@ def get_file_icon(filename: str) -> str:
 if KEY_AGENT not in st.session_state:
     st.session_state[KEY_AGENT] = ReactAgent()
 
-if KEY_MESSAGES not in st.session_state:
-    st.session_state[KEY_MESSAGES] = []
+if KEY_CONVERSATIONS not in st.session_state:
+    st.session_state[KEY_CONVERSATIONS] = _load_conversations()
+    if not st.session_state[KEY_CONVERSATIONS]:
+        st.session_state[KEY_CONVERSATIONS] = [_new_conversation()]
+
+if KEY_CURRENT_ID not in st.session_state:
+    st.session_state[KEY_CURRENT_ID] = st.session_state[KEY_CONVERSATIONS][0]["id"]
 
 if KEY_PENDING_QUESTION not in st.session_state:
     st.session_state[KEY_PENDING_QUESTION] = None
-
-if KEY_UPLOAD_STATUS not in st.session_state:
-    st.session_state[KEY_UPLOAD_STATUS] = None
 
 
 # ===========================================================================
@@ -286,74 +346,44 @@ with st.sidebar:
     st.markdown(
         '<div style="text-align:center;padding:0.5rem 0 1rem 0;">'
         '<span style="font-size:2.5rem;">🤖</span>'
-        '<h2 style="margin:0.25rem 0;color:#2C3E50;">智能客服助手</h2>'
-        '<p style="font-size:0.8rem;color:#7F8C8D;">扫地机器人 · 专业知识库</p>'
+        '<h2 style="margin:0.25rem 0;color:#FFFFFF;">智能客服助手</h2>'
+        '<p style="font-size:0.8rem;color:#B8C6DC;">扫地机器人 · 专业知识库</p>'
         '</div>',
         unsafe_allow_html=True,
     )
 
-    # ---- 知识库管理（可折叠） ----
-    with st.expander("📚 知识库管理", expanded=True):
-        uploaded_files = st.file_uploader(
-            "上传知识文档（支持 .txt / .pdf / .docx）",
-            type=["txt", "pdf", "docx"],
-            accept_multiple_files=True,
-            help="上传文件将自动保存到 data/ 目录，并触发向量库增量索引",
-            key="kb_uploader",
+    # ---- 会话管理（可折叠） ----
+    with st.expander("💬 会话", expanded=True):
+        st.button(
+            "➕  新增对话",
+            key="new_conversation",
+            on_click=new_conversation,
+            use_container_width=True,
         )
 
-        if uploaded_files:
-            saved_count = 0
-            for uf in uploaded_files:
-                saved_path = save_uploaded_file(uf)
-                if saved_path:
-                    saved_count += 1
+        conversations = st.session_state[KEY_CONVERSATIONS]
+        option_ids = [c["id"] for c in conversations]
+        # 若当前 id 不在列表中（理论上不会发生），回退到第一个会话
+        if st.session_state[KEY_CURRENT_ID] not in option_ids:
+            st.session_state[KEY_CURRENT_ID] = option_ids[0]
 
-            if saved_count > 0:
-                # 触发向量库增量索引
-                result = refresh_knowledge_base()
-                if result["success"]:
-                    st.session_state[KEY_UPLOAD_STATUS] = {
-                        "type": "success",
-                        "msg": f"✅ 已上传 {saved_count} 个文件，知识库索引已更新",
-                    }
-                else:
-                    st.session_state[KEY_UPLOAD_STATUS] = {
-                        "type": "error",
-                        "msg": f"⚠️ 文件已保存但索引更新失败: {result['message']}",
-                    }
-            else:
-                st.session_state[KEY_UPLOAD_STATUS] = {
-                    "type": "error",
-                    "msg": "❌ 文件上传失败，请检查文件类型是否为 .txt / .pdf / .docx",
-                }
+        # 单选按钮直接绑定到当前会话 id，切换即更新 KEY_CURRENT_ID
+        st.radio(
+            "选择会话",
+            options=option_ids,
+            format_func=lambda cid: _conv_title(
+                next(c for c in conversations if c["id"] == cid)
+            ),
+            label_visibility="collapsed",
+            key=KEY_CURRENT_ID,
+        )
 
-            # 清除上传器状态，避免重复处理
-            st.rerun()
-
-        # 显示上传状态
-        upload_status = st.session_state.get(KEY_UPLOAD_STATUS)
-        if upload_status:
-            css_class = "success" if upload_status["type"] == "success" else "error"
-            st.markdown(
-                f'<div class="upload-toast {css_class}">{upload_status["msg"]}</div>',
-                unsafe_allow_html=True,
-            )
-            # 显示一次后清除
-            st.session_state[KEY_UPLOAD_STATUS] = None
-
-        # 已上传文件列表
-        kb_files = get_kb_file_list()
-        if kb_files:
-            with st.expander(f"📋 已上传文件（{len(kb_files)}）", expanded=False):
-                for f in kb_files:
-                    st.markdown(
-                        f'{get_file_icon(f["name"])} `{f["name"]}` '
-                        f'<span style="color:#95A5A6;font-size:0.75rem;">({f["size_kb"]} KB)</span>',
-                        unsafe_allow_html=True,
-                    )
-        else:
-            st.caption("📭 暂无已上传文件")
+        if st.button(
+            "🗑️  删除当前会话",
+            key="delete_conversation",
+            use_container_width=True,
+        ):
+            confirm_delete_dialog(st.session_state[KEY_CURRENT_ID])
 
     # ---- 快捷提问（可折叠） ----
     with st.expander("💬 快捷提问", expanded=True):
@@ -366,19 +396,10 @@ with st.sidebar:
                 use_container_width=True,
             )
 
-    # ---- 操作区（可折叠） ----
-    with st.expander("⚙️ 操作", expanded=True):
-        st.button(
-            "🗑️  清空对话",
-            key="clear_chat",
-            on_click=clear_chat_history,
-            use_container_width=True,
-        )
-
     # ---- 底部信息 ----
     st.divider()
     st.markdown(
-        '<div style="font-size:0.72rem;color:#AAB7C4;text-align:center;padding:0.5rem 0;">'
+        '<div style="font-size:0.72rem;color:#8EA0BE;text-align:center;padding:0.5rem 0;">'
         '🧠 ReAct Agent + RAG<br>'
         'DeepSeek · ChromaDB · LangChain<br>'
         '<span style="font-size:0.65rem;">v2.0 </span>'
@@ -390,6 +411,8 @@ with st.sidebar:
 # ===========================================================================
 # 主界面
 # ===========================================================================
+current_conv = get_current_conversation()
+current_messages: list[dict] = current_conv["messages"]
 
 # ---- 页面标题 ----
 st.markdown(
@@ -401,7 +424,7 @@ st.markdown(
 )
 
 # ---- 欢迎界面（无消息时显示） ----
-if not st.session_state[KEY_MESSAGES]:
+if not current_messages:
     st.markdown(
         '<div class="welcome-card">'
         '<div class="icon">🏠</div>'
@@ -421,7 +444,7 @@ if not st.session_state[KEY_MESSAGES]:
     )
 
 # ---- 渲染历史消息 ----
-for msg in st.session_state[KEY_MESSAGES]:
+for msg in current_messages:
     with st.chat_message(msg["role"], avatar=msg.get("avatar")):
         st.write(msg["content"])
         if msg.get("timestamp"):
@@ -446,7 +469,7 @@ if user_input:
     with st.chat_message("user", avatar=USER_AVATAR):
         st.write(user_input)
         st.caption(now_str)
-    st.session_state[KEY_MESSAGES].append(
+    current_messages.append(
         {
             "role": "user",
             "content": user_input,
@@ -454,6 +477,10 @@ if user_input:
             "timestamp": now_str,
         }
     )
+
+    # 首次提问时自动更新会话标题
+    if current_conv["title"] == "新对话":
+        current_conv["title"] = _conv_title(current_conv)
 
     response_chunks: list[str] = []
 
@@ -467,7 +494,7 @@ if user_input:
         except Exception as exc:
             error_msg = f"❌ 处理请求时出错: {exc}"
             st.error(error_msg)
-            st.session_state[KEY_MESSAGES].append(
+            current_messages.append(
                 {
                     "role": "assistant",
                     "content": error_msg,
@@ -478,7 +505,7 @@ if user_input:
         else:
             full_response = "".join(response_chunks) if response_chunks else ""
             if full_response.strip():
-                st.session_state[KEY_MESSAGES].append(
+                current_messages.append(
                     {
                         "role": "assistant",
                         "content": full_response,
@@ -486,4 +513,5 @@ if user_input:
                         "timestamp": now_str,
                     }
                 )
+            _save_conversations()
             st.rerun()

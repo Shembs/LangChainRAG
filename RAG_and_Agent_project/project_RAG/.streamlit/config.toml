@@ -4,14 +4,14 @@
 [theme]
 base = "light"
 primaryColor = "#6750A4"
-backgroundColor = "#FFFBFE"
+backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F7F2FA"
 codeBackgroundColor = "#E8DEF8"
 textColor = "#1C1B1F"
 linkColor = "#6750A4"
 borderColor = "#CAC4D0"
 showWidgetBorder = false
-showSidebarBorder = false
+showSidebarBorder = true
 baseRadius = "16px"
 buttonRadius = "full"
 font = "'Roboto':https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap"
@@ -37,7 +37,8 @@ dataframeBorderColor = "#CAC4D0"
 dataframeHeaderBackgroundColor = "#E8DEF8"
 
 [theme.sidebar]
-backgroundColor = "#F7F2FA"
-secondaryBackgroundColor = "#E8DEF8"
-codeBackgroundColor = "#D0BCFF"
-borderColor = "#CAC4D0"
+backgroundColor = "#2E2145"
+secondaryBackgroundColor = "#3D2C5C"
+codeBackgroundColor = "#E0D4F5"
+textColor = "#F3EFFB"
+borderColor = "#4A3570"

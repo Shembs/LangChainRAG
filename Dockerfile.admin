@@ -1,0 +1,47 @@
+# ========================================================
+# 后台管理服务 — 多阶段构建（Vue 前端 + FastAPI 后端）
+#
+# 构建: docker build -f Dockerfile.admin -t langchain-rag-admin .
+# 运行: docker compose up -d admin
+# ========================================================
+
+# ---- Stage 1: 构建 Vue 前端 ----
+FROM node:20-alpine AS frontend
+WORKDIR /fe
+COPY RAG_and_Agent_project/project_Agent/admin_frontend/package.json \
+     RAG_and_Agent_project/project_Agent/admin_frontend/package-lock.json ./
+RUN npm ci
+COPY RAG_and_Agent_project/project_Agent/admin_frontend/ ./
+RUN npm run build
+
+# ---- Stage 2: Python 后端 ----
+FROM python:3.11-slim
+WORKDIR /app
+
+# 安装系统依赖（与主 Dockerfile 保持一致，保证 langchain 等依赖可编译）
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        default-libmysqlclient-dev \
+        build-essential \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# 将 Stage 1 构建好的静态资源复制到 admin_frontend/dist
+COPY --from=frontend /fe/dist /app/RAG_and_Agent_project/project_Agent/admin_frontend/dist
+
+# 创建运行时数据目录（挂载卷）
+RUN mkdir -p /app/data /app/chroma_db /app/chat_history
+
+EXPOSE 8001
+
+ENV APP_MODE=admin
+
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["docker-entrypoint.sh"]

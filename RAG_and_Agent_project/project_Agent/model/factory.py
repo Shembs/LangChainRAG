@@ -20,7 +20,10 @@ class ChatModelFactory(BaseModelFactory):
     #        未实现父类 BaseModelFactory 的抽象方法 build()，
     #        导致实例化时抛出 TypeError: Can't instantiate abstract class）
     def build(self) -> Optional[Embeddings | BaseChatModel]:
-        return ChatDeepSeek(model=rag_conf["chat_model_name"])
+        return ChatDeepSeek(
+            model=rag_conf["chat_model_name"],
+            temperature=rag_conf.get("temperature", 0.7),
+        )
 
 
 class EmbeddingModelFactory(BaseModelFactory):

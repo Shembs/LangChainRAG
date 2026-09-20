@@ -1,0 +1,12 @@
+# 智能客服助手 — 主题配置
+# 深色侧边栏 + 浅色主区，拉开侧边栏与背景的色差，提升文字可读性
+
+[theme]
+base = "light"
+
+[theme.sidebar]
+backgroundColor = "#1E2A45"
+secondaryBackgroundColor = "#2A3A5C"
+codeBackgroundColor = "#33405E"
+textColor = "#E8EDF5"
+borderColor = "#33405E"

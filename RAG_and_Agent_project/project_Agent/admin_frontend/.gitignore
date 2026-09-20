@@ -1,0 +1,6 @@
+node_modules/
+*.log
+.DS_Store
+
+# dist/ 构建产物纳入版本控制（便于 FastAPI 直接托管，无需前端构建）
+!dist/
